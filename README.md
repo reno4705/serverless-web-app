@@ -95,12 +95,191 @@ Ensure both functions have the proper IAM roles to interact with DynamoDB.
 - Update the S3 bucket policy to allow CloudFront to access your objects.
 - Once deployed, use the CloudFront distribution’s domain name to access your secure website.
 
+# Serverless Student Data Web Application Deployment Guide
+
+This guide walks you through the process of deploying a serverless student data web application on AWS. The project leverages AWS DynamoDB, Lambda, API Gateway, S3, and CloudFront to create a scalable and secure solution.
+
+## Table of Contents
+1. [Part 1: Setting Up the Back-End](#part-1-setting-up-the-back-end)
+   - [1.1 Create a DynamoDB Table](#11-create-a-dynamodb-table)
+   - [1.2 Create Lambda Functions](#12-create-lambda-functions)
+     - [Get Student Data Function](#get-student-data-function)
+     - [Insert Student Data Function](#insert-student-data-function)
+   - [1.3 Test Lambda Functions](#13-test-lambda-functions)
+2. [Part 2: Creating the API Gateway and Hosting the Front-End](#part-2-creating-the-api-gateway-and-hosting-the-front-end)
+   - [2.1 Configure API Gateway](#21-configure-api-gateway)
+   - [2.2 Update Front-End Code](#22-update-front-end-code)
+   - [2.3 Set Up S3 for Static Website Hosting](#23-set-up-s3-for-static-website-hosting)
+   - [2.4 Test the Static Website](#24-test-the-static-website)
+3. [Part 3: Securing Your Application with CloudFront](#part-3-securing-your-application-with-cloudfront)
+   - [3.1 Set Up CloudFront Distribution](#31-set-up-cloudfront-distribution)
+   - [3.2 Update S3 Bucket Policy for CloudFront](#32-update-s3-bucket-policy-for-cloudfront)
+   - [3.3 Final Testing](#33-final-testing)
+4. [Conclusion](#conclusion)
+
+---
+
+## Part 1: Setting Up the Back-End
+
+### 1.1 Create a DynamoDB Table
+1. Log in to the **AWS Management Console**.
+2. Navigate to **DynamoDB**.
+3. Click **Create table**.
+4. Set the table name as `studentData`.
+5. Define the **Partition key** as `studentid` (this key uniquely identifies each student record).
+6. Leave the default settings (or adjust based on your requirements).
+7. Click **Create** and wait for the table status to become **active**.
+
+### 1.2 Create Lambda Functions
+
+#### Get Student Data Function
+1. Open the **AWS Lambda** console.
+2. Click **Create function** and select **Author from scratch**.
+3. Name the function `getStudentData`.
+4. Choose **Python 3.x** as the runtime.
+5. Under **Permissions**, use the default execution role or create one with DynamoDB access.
+6. Replace the default code with the following (`getStudents.py`):
+
+   ```python
+   import json
+   import boto3
+
+   def lambda_handler(event, context):
+       dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+       table = dynamodb.Table('studentData')
+
+       response = table.scan()
+       data = response['Items']
+
+       while 'LastEvaluatedKey' in response:
+           response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
+           data.extend(response['Items'])
+
+       return data
+   ```
+
+7. Click **Deploy**.
+
+#### Insert Student Data Function
+1. Create a new Lambda function named `insertStudentData`.
+2. Choose **Python 3.x** and ensure the execution role has permission to write to DynamoDB.
+3. Replace the default code with the following (`insertStudentData.py`):
+
+   ```python
+   import json
+   import boto3
+
+   dynamodb = boto3.resource('dynamodb')
+   table = dynamodb.Table('studentData')
+
+   def lambda_handler(event, context):
+       student_id = event['studentid']
+       name = event['name']
+       student_class = event['class']
+       age = event['age']
+       
+       response = table.put_item(
+           Item={
+               'studentid': student_id,
+               'name': name,
+               'class': student_class,
+               'age': age
+           }
+       )
+       
+       return {
+           'statusCode': 200,
+           'body': json.dumps('Student data saved successfully!')
+       }
+   ```
+
+4. Click **Deploy**.
+
+### 1.3 Test Lambda Functions
+1. For `insertStudentData`, create a test event with the following sample data:
+   ```json
+   {
+     "studentid": "1",
+     "name": "Sur",
+     "class": "A",
+     "age": "22"
+   }
+   ```
+2. Run the test to confirm that the data is inserted into the DynamoDB table.
+3. Test `getStudentData` to verify it returns the expected list of student records.
+
+---
+
+## Part 2: Creating the API Gateway and Hosting the Front-End
+
+### 2.1 Configure API Gateway
+1. Open the **Amazon API Gateway** console.
+2. Create a new **REST API** (e.g., named `StudentAPI`).
+3. Create a new **resource** (or use the root resource).
+4. Add a **GET method**:
+   - Set the integration type to **Lambda Function**.
+   - Select the `getStudentData` Lambda function.
+5. Add a **POST method**:
+   - Set the integration type to **Lambda Function**.
+   - Select the `insertStudentData` Lambda function.
+6. Deploy the API:
+   - Click **Deploy API**.
+   - Create a new stage (e.g., `prod`).
+   - Copy the **Invoke URL** for later use.
+
+### 2.2 Update Front-End Code
+1. Open the `scripts.js` file.
+2. Replace the placeholder API endpoint with the API Gateway **Invoke URL**:
+
+   ```javascript
+   var API_ENDPOINT = "https://<your-api-id>.execute-api.<region>.amazonaws.com/prod";
+   ```
+
+3. Save the changes.
+
+### 2.3 Set Up S3 for Static Website Hosting
+1. Navigate to the **Amazon S3** console.
+2. Create a new **S3 bucket** (e.g., `devopsMasterBucket`).
+3. Upload your static files (`index.html` and `scripts.js`) to the bucket.
+4. Enable **Static Website Hosting**:
+   - Set the index document to `index.html`.
+
+### 2.4 Test the Static Website
+1. Open the S3 website **URL**.
+2. Test form submission and data retrieval.
+
+---
+
+## Part 3: Securing Your Application with CloudFront
+
+### 3.1 Set Up CloudFront Distribution
+1. Open the **CloudFront** console.
+2. Create a new **distribution**.
+3. Set the **Origin Domain Name** to your S3 bucket.
+4. Configure security settings.
+
+### 3.2 Update S3 Bucket Policy for CloudFront
+1. Modify the **S3 bucket policy** to restrict access via **CloudFront**.
+
+### 3.3 Final Testing
+1. Access the site through **CloudFront**.
+2. Verify HTTPS and application functionality.
+
+---
+
+## Conclusion
+You have successfully deployed a **serverless student data web application** on AWS. The system is secure, scalable, and ready for use. 🚀
+
+
 ## Project Structure
 
-├── index.html # Static front-end webpage
-├── scripts.js # JavaScript for AJAX API calls
-├── getStudents.py # Lambda function for retrieving student data
-└── insertStudentData.py # Lambda function for inserting student data
+├── index.html              # Static front-end webpage
+
+├── scripts.js              # JavaScript for AJAX API calls
+
+├── getStudents.py          # Lambda function for retrieving student data
+
+└── insertStudentData.py    # Lambda function for inserting student data
 
 
 - **index.html**: Contains the HTML markup and basic styling for the student data interface.  
